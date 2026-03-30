@@ -1,6 +1,8 @@
 // sw.js — Service Worker for Expense Tracker PWA
+
 const CACHE = "expense-tracker-v1";
 const OFFLINE_ASSETS = ["/", "/index.html", "/manifest.json"];
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxq0KDc7Yz2iaxLdGfDbvgKnXhaFg6j6lbOVJnwGDuXVydju_D1dqJrSz5kQ5lOk8RP/exec"; // Replace with your web app URL
 
 // Install: cache core assets
 self.addEventListener("install", e => {
@@ -24,8 +26,8 @@ self.addEventListener("activate", e => {
 self.addEventListener("fetch", e => {
   const url = new URL(e.request.url);
 
-  // API calls (Google Apps Script) — always network, queue if offline
-  if (url.hostname.includes("script.google.com")) {
+  // API calls — always try network first
+  if (url.href.startsWith(SCRIPT_URL)) {
     e.respondWith(
       fetch(e.request).catch(() =>
         new Response(JSON.stringify({ ok: false, error: "offline" }), {
@@ -57,8 +59,19 @@ self.addEventListener("sync", e => {
   }
 });
 
+// Function to notify clients to sync queued expenses
 async function syncQueuedExpenses() {
-  // Handled in main app via localStorage queue
-  const clients = await self.clients.matchAll();
-  clients.forEach(c => c.postMessage({ type: "sync-complete" }));
+  const clientsList = await self.clients.matchAll();
+  for (const client of clientsList) {
+    client.postMessage({ type: "sync-start" });
+  }
 }
+
+// Optional: push notifications for sync complete
+self.addEventListener("message", e => {
+  if (e.data && e.data.type === "SYNC_COMPLETE") {
+    self.registration.showNotification("Expenses synced!", {
+      body: "Your offline expenses have been uploaded.",
+    });
+  }
+});
