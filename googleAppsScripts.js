@@ -4,7 +4,7 @@
 
 // ── CONFIG ──────────────────────────────────────────────────
 // 🔴 YOU MUST SET THIS: Copy your Google Sheet ID here
-const SHEET_ID     = ""; // ← Paste your Sheet ID here (from URL)
+const SHEET_ID     = "1CnIHN6ObrP1BVDV7qaijWzEQIHCgDcEo3-MtSUzjbfM"; // ← Paste your Sheet ID here (from URL)
 const HEADERS      = ["ID", "Date", "Title", "Category", "Amount", "Notes"];
 
 // Validate on startup
