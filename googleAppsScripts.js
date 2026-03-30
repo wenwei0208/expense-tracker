@@ -1,10 +1,10 @@
 // ============================================================
-//  EXPENSE TRACKER — Google Apps Script Backend (CORS enabled)
+//  EXPENSE TRACKER — Google Apps Script Backend (Native SpreadsheetApp)
 // ============================================================
 
 // ── CONFIG ──────────────────────────────────────────────────
 // 🔴 YOU MUST SET THIS: Copy your Google Sheet ID here
-const SHEET_ID     = "1CnIHN6ObrP1BVDV7qaijWzEQIHCgDcEo3-MtSUzjbfM"; // ← Paste your Sheet ID here (from URL)
+const SHEET_ID     = "1CnIHN6ObrP1BVDV7qaijWzEQIHCgDcEo3-MtSUzjbfM"; // ← Paste your Sheet ID
 const HEADERS      = ["ID", "Date", "Title", "Category", "Amount", "Notes"];
 
 // Validate on startup
@@ -12,7 +12,7 @@ function onOpen() {
   if (!SHEET_ID || SHEET_ID.trim() === "") {
     Logger.log("❌ ERROR: SHEET_ID is not set! Update line 7 in Code.gs");
   } else {
-    Logger.log("✓ Sheet ID is configured: " + SHEET_ID);
+    Logger.log("✓ Sheet ID is configured");
   }
 }
 
@@ -26,49 +26,109 @@ function doPost(e) {
 }
 
 function doOptions(e) {
-  // Handle CORS preflight requests
-  return buildJsonResponse({ ok: true });
+  // Handle CORS preflight requests with proper headers
+  const output = ContentService.createTextOutput('');
+  output.setMimeType(ContentService.MimeType.TEXT);
+  
+  // Add explicit CORS headers for preflight
+  output.addHeader('Access-Control-Allow-Origin', '*');
+  output.addHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+  output.addHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
+  output.addHeader('Access-Control-Max-Age', '86400');
+  
+  return output;
 }
 
 // ── HANDLE REQUEST WITH CORS ─────────────────────────────────
 function handleRequest(e) {
   try {
+    // Log raw request details for debugging
+    Logger.log("=== INCOMING REQUEST ===");
+    Logger.log("Method: " + (e.parameter ? "GET" : "POST"));
+    Logger.log("Parameters: " + JSON.stringify(e.parameter));
+    Logger.log("PostData: " + (e.postData ? e.postData.contents : "none"));
+    
     // Validate SHEET_ID first
     if (!SHEET_ID || SHEET_ID.trim() === "") {
       Logger.log("❌ SHEET_ID not configured!");
       return buildJsonResponse({ ok: false, error: "SHEET_ID not configured. Update line 7 with your Sheet ID." });
     }
 
-    // Parse params and body
+    // Parse params and body - try multiple ways to get action
     const params = e.parameter || {};
-    const body   = e.postData ? JSON.parse(e.postData.contents || "{}") : {};
-    const action = params.action || body.action;
-
-    Logger.log("[GAS] Action: " + action + ", Body: " + JSON.stringify(body).substring(0, 100));
-
-    let result;
-    switch (action) {
-      case "addExpense":    result = addExpense(body);            break;
-      case "getExpenses":   result = getExpenses(params);         break;
-      case "deleteExpense": result = deleteExpense(body.id);      break;
-      case "getMonthly":    result = getMonthlyReport(params);    break;
-      case "ping":          result = { ok: true, msg: "alive" };  break;
-      default:
-        result = { ok: false, error: "Unknown action: " + action };
+    let body = {};
+    let action = params.action; // Try from URL params first
+    
+    // Try to parse POST body
+    if (e.postData && e.postData.contents) {
+      try {
+        body = JSON.parse(e.postData.contents || "{}");
+        Logger.log("[GAS] Parsed body: " + JSON.stringify(body).substring(0, 100));
+      } catch (parseErr) {
+        Logger.log("⚠ Could not parse body: " + parseErr.message);
+      }
+    }
+    
+    // If no action in URL, try body
+    if (!action) {
+      action = body.action;
     }
 
-    Logger.log("[GAS] Result: " + JSON.stringify(result).substring(0, 100));
+    Logger.log("[GAS] ACTION: " + action);
+    Logger.log("[GAS] Body keys: " + Object.keys(body).join(", "));
+
+    // Handle different request formats
+    let result;
+    
+    if (!action) {
+      // No action provided - return helpful error
+      result = {
+        ok: false,
+        error: "Missing action parameter",
+        hint: "Send ?action=ping or POST {\"action\":\"ping\"}",
+        received: {
+          action: action,
+          params: params,
+          bodyKeys: Object.keys(body)
+        }
+      };
+    } else {
+      // Process the action
+      switch (action) {
+        case "addExpense":    result = addExpense(body);            break;
+        case "getExpenses":   result = getExpenses(params);         break;
+        case "deleteExpense": result = deleteExpense(body.id);      break;
+        case "getMonthly":    result = getMonthlyReport(params);    break;
+        case "ping":          result = { ok: true, msg: "alive", timestamp: new Date().toISOString() };  break;
+        default:
+          result = { ok: false, error: "Unknown action: " + action, available: ["addExpense", "getExpenses", "deleteExpense", "getMonthly", "ping"] };
+      }
+    }
+
+    Logger.log("[GAS] RESULT: " + JSON.stringify(result).substring(0, 150));
     return buildJsonResponse(result);
   } catch (err) {
-    Logger.log("❌ [GAS] Error: " + err.message);
-    return buildJsonResponse({ ok: false, error: err.message });
+    Logger.log("❌ [GAS] CRITICAL ERROR: " + err.message);
+    Logger.log("Stack: " + err.stack);
+    return buildJsonResponse({ 
+      ok: false, 
+      error: err.message,
+      type: "exception"
+    });
   }
 }
 
-// Helper to build JSON response (CORS is automatic for Apps Script web apps)
+// Helper to build JSON response with explicit CORS headers
 function buildJsonResponse(data) {
   const output = ContentService.createTextOutput(JSON.stringify(data));
   output.setMimeType(ContentService.MimeType.JSON);
+  
+  // Add explicit CORS headers
+  output.addHeader('Access-Control-Allow-Origin', '*');
+  output.addHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+  output.addHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
+  output.addHeader('Access-Control-Max-Age', '86400');
+  
   return output;
 }
 
@@ -88,7 +148,7 @@ function addExpense(data) {
   try {
     // Extract month from date (YYYY-MM format)
     const date = data.date || new Date().toISOString();
-    const month = extractMonth(date); // e.g., "2024-03"
+    const month = extractMonth(date);
     
     // Get or create sheet for this month
     const sheet = getOrCreateMonthSheet(month);
@@ -117,59 +177,65 @@ function addExpense(data) {
 }
 
 function getExpenses(params) {
+  Logger.log("[GAS] getExpenses called with params: " + JSON.stringify(params));
+  
   try {
-    let expenses = [];
     const ss = SpreadsheetApp.openById(SHEET_ID);
-    const sheets = ss.getSheets();
+    let allRows = [];
     
-    // If searching for a specific month, only search that sheet
-    if (params.month) {
-      const sheet = ss.getSheetByName(params.month);
-      if (!sheet) {
-        Logger.log("[GAS] No sheet found for month: " + params.month);
-        return { ok: true, expenses: [] };
+    // Get all sheets and collect data
+    const sheets = ss.getSheets();
+    Logger.log("[GAS] Found " + sheets.length + " sheets");
+    
+    for (let i = 0; i < sheets.length; i++) {
+      const sheet = sheets[i];
+      const sheetName = sheet.getName();
+      
+      // Skip non-month sheets (like "Form Responses" or default sheets)
+      if (!/^\d{4}-\d{2}$/.test(sheetName)) {
+        Logger.log("[GAS] Skipping non-month sheet: " + sheetName);
+        continue;
       }
-      const rows = sheet.getDataRange().getValues();
-      if (rows.length > 1) {
-        expenses = rows.slice(1).map(rowToObj);
-      }
-      Logger.log("[GAS] Found " + expenses.length + " expenses in sheet " + params.month);
-    } else {
-      // Search across ALL sheets (for Records tab which shows all)
-      for (const sheet of sheets) {
-        const sheetName = sheet.getName();
-        // Skip "Config" or other non-month sheets (month sheets are like "2024-03")
-        if (!sheetName.match(/^\d{4}-\d{2}$/)) continue;
-        
-        const rows = sheet.getDataRange().getValues();
-        if (rows.length > 1) {
-          const sheetExpenses = rows.slice(1).map(rowToObj);
-          expenses = expenses.concat(sheetExpenses);
-          Logger.log("[GAS] Added " + sheetExpenses.length + " from sheet " + sheetName);
+      
+      // Get all data from the sheet
+      const range = sheet.getDataRange();
+      const values = range.getValues();
+      
+      Logger.log("[GAS] Sheet " + sheetName + " has " + values.length + " rows");
+      
+      // Skip header row
+      for (let row = 1; row < values.length; row++) {
+        const rowData = values[row];
+        if (rowData[0]) { // If ID exists
+          allRows.push(rowToObj(rowData));
         }
       }
-      Logger.log("[GAS] Total expenses from all sheets: " + expenses.length);
     }
-
+    
+    Logger.log("[GAS] Total expenses loaded: " + allRows.length);
+    
+    // Apply filters
+    let results = allRows;
+    
     if (params.category && params.category !== "All") {
-      const before = expenses.length;
-      expenses = expenses.filter(e => e.category === params.category);
-      Logger.log("[GAS] Filtered by category " + params.category + ": " + before + " → " + expenses.length);
+      Logger.log("[GAS] Filtering by category: " + params.category);
+      results = results.filter(e => e.category === params.category);
     }
     
     if (params.search) {
-      const q = params.search.toLowerCase();
-      const before = expenses.length;
-      expenses = expenses.filter(e =>
-        e.title.toLowerCase().includes(q) ||
-        (e.notes || "").toLowerCase().includes(q)
+      Logger.log("[GAS] Filtering by search: " + params.search);
+      const search = params.search.toLowerCase();
+      results = results.filter(e => 
+        e.title.toLowerCase().includes(search) || 
+        (e.notes || "").toLowerCase().includes(search)
       );
-      Logger.log("[GAS] Filtered by search: " + before + " → " + expenses.length);
     }
-
-    expenses.sort((a, b) => new Date(b.date) - new Date(a.date));
-    Logger.log("[GAS] ✓ Returning " + expenses.length + " expenses");
-    return { ok: true, expenses };
+    
+    // Sort by date descending
+    results.sort((a, b) => new Date(b.date) - new Date(a.date));
+    Logger.log("[GAS] Returned " + results.length + " expenses");
+    
+    return { ok: true, expenses: results };
   } catch (err) {
     Logger.log("❌ [GAS] getExpenses error: " + err.message);
     throw err;
@@ -177,6 +243,8 @@ function getExpenses(params) {
 }
 
 function deleteExpense(id) {
+  Logger.log("[GAS] deleteExpense called with id: " + id);
+  
   try {
     if (!id) {
       Logger.log("❌ deleteExpense: id is required");
@@ -186,19 +254,25 @@ function deleteExpense(id) {
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const sheets = ss.getSheets();
     
-    // Search across all sheets for this expense ID
-    for (const sheet of sheets) {
+    // Search across all month sheets
+    for (let i = 0; i < sheets.length; i++) {
+      const sheet = sheets[i];
       const sheetName = sheet.getName();
-      // Only search month sheets (format: YYYY-MM)
-      if (!sheetName.match(/^\d{4}-\d{2}$/)) continue;
       
-      const data = sheet.getDataRange().getValues();
+      // Skip non-month sheets
+      if (!/^\d{4}-\d{2}$/.test(sheetName)) continue;
+      
+      const range = sheet.getDataRange();
+      const values = range.getValues();
+      
       Logger.log("[GAS] Looking for id=" + id + " in sheet " + sheetName);
       
-      for (let i = 1; i < data.length; i++) {
-        if (data[i][0] === id) {
-          sheet.deleteRow(i + 1);
-          Logger.log("[GAS] ✓ Deleted expense " + id + " from sheet " + sheetName);
+      // Search for the expense (skip header row at index 0)
+      for (let row = 1; row < values.length; row++) {
+        if (values[row][0] === id) {
+          // Delete this row (row index is 0-based, so row+1 for deleteRow)
+          sheet.deleteRow(row + 1);
+          Logger.log("[GAS] ✓ Deleted expense " + id + " from sheet " + sheetName + " at row " + (row + 1));
           return { ok: true, deleted: id };
         }
       }
@@ -257,6 +331,31 @@ function getMonthlyReport(params) {
 
 // ── HELPERS ──────────────────────────────────────────────────
 
+// Get spreadsheet metadata (sheet names,  IDs, etc.)
+// Get or create a sheet for a given month (YYYY-MM format)
+function getOrCreateMonthSheet(month) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  
+  let sheet = ss.getSheetByName(month);
+  if (sheet) {
+    Logger.log("[GAS] Found existing sheet: " + month);
+    return sheet;
+  }
+  
+  Logger.log("[GAS] Creating new sheet: " + month);
+  sheet = ss.insertSheet(month);
+  
+  // Add headers
+  sheet.appendRow(HEADERS);
+  
+  // Format header row
+  sheet.getRange(1, 1, 1, HEADERS.length).setFontWeight("bold");
+  sheet.setFrozenRows(1);
+  
+  Logger.log("[GAS] ✓ Sheet created: " + month);
+  return sheet;
+}
+
 // Extract month from ISO date string (YYYY-MM-DD)
 function extractMonth(dateString) {
   try {
@@ -267,29 +366,6 @@ function extractMonth(dateString) {
   } catch (err) {
     Logger.log("⚠ extractMonth error, using current month: " + err.message);
     return getCurrentMonth();
-  }
-}
-
-// Get or create a sheet for a specific month (e.g., "2024-03")
-function getOrCreateMonthSheet(month) {
-  try {
-    const ss = SpreadsheetApp.openById(SHEET_ID);
-    let sheet = ss.getSheetByName(month);
-    
-    if (!sheet) {
-      Logger.log("[GAS] Creating new sheet for month: " + month);
-      sheet = ss.insertSheet(month);
-      // Add headers
-      sheet.appendRow(HEADERS);
-      sheet.getRange(1, 1, 1, HEADERS.length).setFontWeight("bold");
-      sheet.setFrozenRows(1);
-      Logger.log("[GAS] ✓ Sheet created: " + month);
-    }
-    
-    return sheet;
-  } catch (err) {
-    Logger.log("❌ [GAS] getOrCreateMonthSheet() error: " + err.message);
-    throw new Error("Failed to access/create sheet for month " + month + ": " + err.message);
   }
 }
 
@@ -321,54 +397,43 @@ function testSetup() {
   // Check 1: SHEET_ID
   if (!SHEET_ID || SHEET_ID.trim() === "") {
     Logger.log("❌ SHEET_ID is NOT configured");
-    Logger.log("   → Update line 7 in googleAppsScripts.js with your Sheet ID");
-    Logger.log("   → Find it in Google Sheets URL: docs.google.com/spreadsheets/d/[ID]/edit");
     return;
   }
-  Logger.log("✓ SHEET_ID configured: " + SHEET_ID.substring(0, 20) + "...");
+  Logger.log("✓ SHEET_ID configured");
   
-  // Check 2: Can create/access monthly sheets
+  // Check 2: Can access spreadsheet
   try {
-    const month = getCurrentMonth();
-    const sheet = getOrCreateMonthSheet(month);
-    Logger.log("✓ Sheet access OK: " + sheet.getName());
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    Logger.log("✓ Spreadsheet access OK");
   } catch (err) {
-    Logger.log("❌ Cannot access/create sheet: " + err.message);
+    Logger.log("❌ Cannot access spreadsheet: " + err.message);
     Logger.log("   → Check SHEET_ID is correct");
-    Logger.log("   → Ensure Google Apps Script has access to the spreadsheet");
     return;
   }
   
-  // Check 3: Headers exist
+  // Check 3: Can create/access monthly sheets
   try {
     const month = getCurrentMonth();
     const sheet = getOrCreateMonthSheet(month);
-    const headers = sheet.getRange(1, 1, 1, HEADERS.length).getValues()[0];
-    const headersMatch = headers.join(",") === HEADERS.join(",");
-    if (headersMatch) {
-      Logger.log("✓ Sheet headers OK: " + headers.join(" | "));
-    } else {
-      Logger.log("⚠ Sheet headers don't match:");
-      Logger.log("  Expected: " + HEADERS.join(" | "));
-      Logger.log("  Found:    " + headers.join(" | "));
-    }
+    Logger.log("✓ Sheet access/creation OK: " + month);
   } catch (err) {
-    Logger.log("❌ Error checking headers: " + err.message);
+    Logger.log("❌ Cannot create sheet: " + err.message);
+    return;
   }
   
   // Check 4: Try test add/get
   try {
-    Logger.log("\n--- Testing addExpense (auto-creates monthly sheet) ---");
+    Logger.log("\n--- Testing addExpense ---");
     const testExpense = {
-      title: "✓ Test Expense " + new Date().getTime(),
+      title: "✓ Test " + new Date().getTime(),
       amount: 12.34,
-      category: "Food & drinks",
+      category: "Test",
       date: new Date().toISOString(),
       notes: "Automated test"
     };
     const addResult = addExpense(testExpense);
     if (addResult.ok) {
-      Logger.log("✓ addExpense works! Expense ID: " + addResult.expense.id);
+      Logger.log("✓ addExpense works!");
     } else {
       Logger.log("❌ addExpense failed: " + addResult.error);
     }
@@ -376,7 +441,7 @@ function testSetup() {
     Logger.log("\n--- Testing getExpenses ---");
     const getResult = getExpenses({});
     if (getResult.ok) {
-      Logger.log("✓ getExpenses works! Found " + getResult.expenses.length + " expenses across all months");
+      Logger.log("✓ getExpenses works! Found " + getResult.expenses.length + " total expenses");
     } else {
       Logger.log("❌ getExpenses failed: " + getResult.error);
     }
@@ -385,8 +450,7 @@ function testSetup() {
   }
   
   Logger.log("\n========== SETUP COMPLETE ==========");
-  Logger.log("📋 Sheets are now organized by month (YYYY-MM format)");
-  Logger.log("✅ New monthly sheets will be created automatically as you add expenses");
+  Logger.log("✅ Your app is ready! Go back to your Expense Tracker and add an expense.");
 }
 
 // ── OPTIONAL: MONTHLY EMAIL REPORT ───────────────────────────
