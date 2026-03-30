@@ -37,11 +37,13 @@ self.addEventListener("fetch", e => {
     e.respondWith(
       fetch(e.request)
         .then(res => res)
-        .catch(() =>
-          new Response(JSON.stringify({ ok: false, error: "offline" }), {
-            headers: { "Content-Type": "application/json" }
-          })
-        )
+        .catch(() => {
+          // If offline, return JSON indicating offline
+          return new Response(
+            JSON.stringify({ ok: false, error: "offline", queued: true }),
+            { headers: { "Content-Type": "application/json" } }
+          );
+        })
     );
     return;
   }
@@ -74,15 +76,26 @@ self.addEventListener("sync", e => {
 async function syncQueuedExpenses() {
   const clientsList = await self.clients.matchAll();
   for (const client of clientsList) {
+    // Notify the main app to send queued expenses
     client.postMessage({ type: "sync-start" });
   }
 }
 
 // Optional: push notification when sync complete
 self.addEventListener("message", e => {
-  if (e.data && e.data.type === "SYNC_COMPLETE") {
-    self.registration.showNotification("Expenses synced!", {
-      body: "Your offline expenses have been uploaded.",
-    });
+  if (!e.data) return;
+
+  switch (e.data.type) {
+    case "SYNC_COMPLETE":
+      self.registration.showNotification("Expenses synced!", {
+        body: "Your offline expenses have been uploaded.",
+      });
+      break;
+
+    case "QUEUE_EXPENSE":
+      // The client can send a single expense with month info to queue locally
+      // This is just an acknowledgment; actual storage is in IndexedDB or localStorage
+      console.log("Queued expense for offline sync:", e.data.expense);
+      break;
   }
 });
