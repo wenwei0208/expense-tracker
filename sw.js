@@ -35,13 +35,29 @@ self.addEventListener("fetch", e => {
 
   // API requests to Google Apps Script (check if it's an API call)
   if (url.host.includes('script.google.com') || url.href.includes('/exec')) {
-    // For API calls: make a fresh fetch request without trying to manipulate streams
+    // For API calls: make a fresh request without reusing the original
+    // (which might have an expired AbortSignal or other issues)
     e.respondWith(
       (async () => {
         try {
-          // Clone the request to preserve the original
-          const req = e.request.clone();
-          const res = await fetch(req);
+          // Construct a brand new request to avoid AbortSignal/timeout issues
+          let fetchOptions = {
+            method: e.request.method,
+            headers: {}
+          };
+          
+          // Copy safe headers
+          ['content-type', 'accept'].forEach(h => {
+            const val = e.request.headers.get(h);
+            if (val) fetchOptions.headers[h] = val;
+          });
+          
+          // For POST, include the body
+          if (e.request.method === 'POST') {
+            fetchOptions.body = await e.request.clone().text();
+          }
+          
+          const res = await fetch(url.toString(), fetchOptions);
           console.log('[SW] API call successful:', url.href);
           return res;
         } catch (err) {

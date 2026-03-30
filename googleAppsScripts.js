@@ -1,19 +1,37 @@
 // ============================================================
-//  EXPENSE TRACKER — Google Apps Script Backend (Native SpreadsheetApp)
+//  EXPENSE TRACKER — Google Apps Script Backend (Sheets API v4)
 // ============================================================
 
 // ── CONFIG ──────────────────────────────────────────────────
 // 🔴 YOU MUST SET THIS: Copy your Google Sheet ID here
 const SHEET_ID     = "1CnIHN6ObrP1BVDV7qaijWzEQIHCgDcEo3-MtSUzjbfM"; // ← Paste your Sheet ID
+
+// 🔴 YOU MUST SET THIS: Get API key from Google Cloud Console
+// Go to: https://console.cloud.google.com/
+// Enable "Google Sheets API" for your project
+// Create API Key (Credentials → Create Credentials → API Key)
+const SHEETS_API_KEY = "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"; // ← Paste your API key here
+
+const SHEETS_API_URL = "https://sheets.googleapis.com/v4/spreadsheets";
 const HEADERS      = ["ID", "Date", "Title", "Category", "Amount", "Notes"];
 
 // Validate on startup
 function onOpen() {
+  const checks = [];
+  
   if (!SHEET_ID || SHEET_ID.trim() === "") {
-    Logger.log("❌ ERROR: SHEET_ID is not set! Update line 7 in Code.gs");
+    checks.push("❌ SHEET_ID not set");
   } else {
-    Logger.log("✓ Sheet ID is configured");
+    checks.push("✓ SHEET_ID configured");
   }
+  
+  if (!SHEETS_API_KEY || SHEETS_API_KEY.trim() === "") {
+    checks.push("❌ SHEETS_API_KEY not set - get from console.cloud.google.com");
+  } else {
+    checks.push("✓ SHEETS_API_KEY configured");
+  }
+  
+  Logger.log(checks.join(" | "));
 }
 
 // ── ENTRY POINTS ─────────────────────────────────────────────
@@ -26,17 +44,10 @@ function doPost(e) {
 }
 
 function doOptions(e) {
-  // Handle CORS preflight requests with proper headers
-  const output = ContentService.createTextOutput('');
-  output.setMimeType(ContentService.MimeType.TEXT);
-  
-  // Add explicit CORS headers for preflight
-  output.addHeader('Access-Control-Allow-Origin', '*');
-  output.addHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
-  output.addHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
-  output.addHeader('Access-Control-Max-Age', '86400');
-  
-  return output;
+  // Google Apps Script automatically handles CORS for standalone web apps
+  // No explicit handling needed - just return OK
+  return ContentService.createTextOutput('')
+    .setMimeType(ContentService.MimeType.TEXT);
 }
 
 // ── HANDLE REQUEST WITH CORS ─────────────────────────────────
@@ -118,18 +129,11 @@ function handleRequest(e) {
   }
 }
 
-// Helper to build JSON response with explicit CORS headers
+// Helper to build JSON response
+// Google Apps Script automatically handles CORS headers
 function buildJsonResponse(data) {
-  const output = ContentService.createTextOutput(JSON.stringify(data));
-  output.setMimeType(ContentService.MimeType.JSON);
-  
-  // Add explicit CORS headers
-  output.addHeader('Access-Control-Allow-Origin', '*');
-  output.addHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
-  output.addHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
-  output.addHeader('Access-Control-Max-Age', '86400');
-  
-  return output;
+  return ContentService.createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 // ── ACTIONS ──────────────────────────────────────────────────
@@ -137,22 +141,21 @@ function addExpense(data) {
   Logger.log("[GAS] addExpense called with: " + JSON.stringify(data));
   
   if (!data.title)  {
-    Logger.log("❌ Missing title");
     throw new Error("title is required");
   }
   if (!data.amount) {
-    Logger.log("❌ Missing amount");
     throw new Error("amount is required");
+  }
+  if (!SHEETS_API_KEY || SHEETS_API_KEY.trim() === "") {
+    throw new Error("SHEETS_API_KEY not configured");
   }
 
   try {
-    // Extract month from date (YYYY-MM format)
+    // Extract month and ensure sheet exists
     const date = data.date || new Date().toISOString();
     const month = extractMonth(date);
     
-    // Get or create sheet for this month
-    const sheet = getOrCreateMonthSheet(month);
-    Logger.log("[GAS] Using sheet: " + sheet.getName());
+    ensureSheetExists(month);
     
     const id = Utilities.getUuid();
     const row = [
@@ -164,14 +167,31 @@ function addExpense(data) {
       data.notes || ""
     ];
 
-    Logger.log("[GAS] Appending row to " + month + ": " + JSON.stringify(row));
-    sheet.appendRow(row);
+    // Append row using Sheets API
+    const range = `'${month}'!A:F`;
+    const appendUrl = `${SHEETS_API_URL}/${SHEET_ID}/values/${encodeURIComponent(range)}:append?key=${SHEETS_API_KEY}`;
     
-    const result = { ok: true, expense: rowToObj(row) };
-    Logger.log("[GAS] ✓ Expense added to sheet " + month + ": " + data.title);
-    return result;
+    const appendPayload = {
+      values: [row],
+      majorDimension: "ROWS"
+    };
+    
+    const response = UrlFetchApp.fetch(appendUrl, {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify(appendPayload),
+      muteHttpExceptions: true
+    });
+    
+    if (response.getResponseCode() !== 200) {
+      const error = JSON.parse(response.getContentText());
+      throw new Error("Failed to append: " + (error.error?.message || response.getResponseCode()));
+    }
+    
+    Logger.log("[GAS] ✓ Expense added to " + month);
+    return { ok: true, expense: rowToObj(row) };
   } catch (err) {
-    Logger.log("❌ [GAS] addExpense error: " + err.message);
+    Logger.log("❌ addExpense error: " + err.message);
     throw err;
   }
 }
@@ -179,55 +199,40 @@ function addExpense(data) {
 function getExpenses(params) {
   Logger.log("[GAS] getExpenses called with params: " + JSON.stringify(params));
   
+  if (!SHEETS_API_KEY || SHEETS_API_KEY.trim() === "") {
+    throw new Error("SHEETS_API_KEY not configured");
+  }
+  
   try {
-    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const spreadsheetInfo = getSpreadsheetInfo();
+    const sheetNames = spreadsheetInfo.sheets.map(s => s.properties.title);
+    
     let allRows = [];
     
-    // Get all sheets and collect data
-    const sheets = ss.getSheets();
-    Logger.log("[GAS] Found " + sheets.length + " sheets");
-    
-    for (let i = 0; i < sheets.length; i++) {
-      const sheet = sheets[i];
-      const sheetName = sheet.getName();
+    // Fetch data from each month sheet
+    for (const sheetName of sheetNames) {
+      // Only process month sheets (YYYY-MM format)
+      if (!sheetName.match(/^\d{4}-\d{2}$/)) continue;
       
-      // Skip non-month sheets (like "Form Responses" or default sheets)
-      if (!/^\d{4}-\d{2}$/.test(sheetName)) {
-        Logger.log("[GAS] Skipping non-month sheet: " + sheetName);
-        continue;
-      }
-      
-      // Get all data from the sheet
-      const range = sheet.getDataRange();
-      const values = range.getValues();
-      
-      Logger.log("[GAS] Sheet " + sheetName + " has " + values.length + " rows");
-      
-      // Skip header row
-      for (let row = 1; row < values.length; row++) {
-        const rowData = values[row];
-        if (rowData[0]) { // If ID exists
-          allRows.push(rowToObj(rowData));
-        }
-      }
+      const sheetData = fetchSheetData(sheetName);
+      allRows = allRows.concat(sheetData);
+      Logger.log("[GAS] Fetched " + sheetData.length + " rows from " + sheetName);
     }
     
-    Logger.log("[GAS] Total expenses loaded: " + allRows.length);
+    Logger.log("[GAS] Total rows loaded: " + allRows.length);
     
     // Apply filters
     let results = allRows;
     
     if (params.category && params.category !== "All") {
-      Logger.log("[GAS] Filtering by category: " + params.category);
       results = results.filter(e => e.category === params.category);
     }
     
     if (params.search) {
-      Logger.log("[GAS] Filtering by search: " + params.search);
-      const search = params.search.toLowerCase();
+      const q = params.search.toLowerCase();
       results = results.filter(e => 
-        e.title.toLowerCase().includes(search) || 
-        (e.notes || "").toLowerCase().includes(search)
+        e.title.toLowerCase().includes(q) || 
+        (e.notes || "").toLowerCase().includes(q)
       );
     }
     
@@ -237,7 +242,7 @@ function getExpenses(params) {
     
     return { ok: true, expenses: results };
   } catch (err) {
-    Logger.log("❌ [GAS] getExpenses error: " + err.message);
+    Logger.log("❌ getExpenses error: " + err.message);
     throw err;
   }
 }
@@ -245,41 +250,35 @@ function getExpenses(params) {
 function deleteExpense(id) {
   Logger.log("[GAS] deleteExpense called with id: " + id);
   
+  if (!id) {
+    throw new Error("id is required");
+  }
+  if (!SHEETS_API_KEY || SHEETS_API_KEY.trim() === "") {
+    throw new Error("SHEETS_API_KEY not configured");
+  }
+  
   try {
-    if (!id) {
-      Logger.log("❌ deleteExpense: id is required");
-      throw new Error("id is required");
-    }
-    
-    const ss = SpreadsheetApp.openById(SHEET_ID);
-    const sheets = ss.getSheets();
+    const spreadsheetInfo = getSpreadsheetInfo();
+    const sheetNames = spreadsheetInfo.sheets.map(s => s.properties.title);
     
     // Search across all month sheets
-    for (let i = 0; i < sheets.length; i++) {
-      const sheet = sheets[i];
-      const sheetName = sheet.getName();
+    for (const sheetName of sheetNames) {
+      if (!sheetName.match(/^\d{4}-\d{2}$/)) continue;
       
-      // Skip non-month sheets
-      if (!/^\d{4}-\d{2}$/.test(sheetName)) continue;
+      const sheetData = fetchSheetData(sheetName);
       
-      const range = sheet.getDataRange();
-      const values = range.getValues();
-      
-      Logger.log("[GAS] Looking for id=" + id + " in sheet " + sheetName);
-      
-      // Search for the expense (skip header row at index 0)
-      for (let row = 1; row < values.length; row++) {
-        if (values[row][0] === id) {
-          // Delete this row (row index is 0-based, so row+1 for deleteRow)
-          sheet.deleteRow(row + 1);
-          Logger.log("[GAS] ✓ Deleted expense " + id + " from sheet " + sheetName + " at row " + (row + 1));
+      // Find the row with this ID
+      for (let i = 0; i < sheetData.length; i++) {
+        if (sheetData[i].id === id) {
+          // Delete this row using batchUpdate
+          deleteSheetRow(spreadsheetInfo, sheetName, i + 2); // +2 because row 1 is header, +1 for 1-based
+          Logger.log("[GAS] ✓ Deleted expense " + id);
           return { ok: true, deleted: id };
         }
       }
     }
-
-    Logger.log("❌ Expense not found: " + id);
-    return { ok: false, error: "Expense not found: " + id };
+    
+    throw new Error("Expense not found: " + id);
   } catch (err) {
     Logger.log("❌ deleteExpense error: " + err.message);
     throw err;
@@ -291,7 +290,9 @@ function getMonthlyReport(params) {
     const month = params.month || getCurrentMonth();
     Logger.log("[GAS] getMonthlyReport for month: " + month);
     
-    const { expenses } = getExpenses({ month });
+    // Get expenses for this specific month
+    const sheetData = fetchSheetData(month);
+    const expenses = sheetData;
     Logger.log("[GAS] Got " + expenses.length + " expenses for month");
 
     const total    = expenses.reduce((s, e) => s + e.amount, 0);
@@ -331,29 +332,147 @@ function getMonthlyReport(params) {
 
 // ── HELPERS ──────────────────────────────────────────────────
 
-// Get spreadsheet metadata (sheet names,  IDs, etc.)
-// Get or create a sheet for a given month (YYYY-MM format)
-function getOrCreateMonthSheet(month) {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+// Get spreadsheet metadata using Sheets API
+function getSpreadsheetInfo() {
+  const url = `${SHEETS_API_URL}/${SHEET_ID}?key=${SHEETS_API_KEY}`;
   
-  let sheet = ss.getSheetByName(month);
-  if (sheet) {
-    Logger.log("[GAS] Found existing sheet: " + month);
-    return sheet;
+  const response = UrlFetchApp.fetch(url, {
+    method: "get",
+    muteHttpExceptions: true
+  });
+  
+  if (response.getResponseCode() !== 200) {
+    throw new Error("Failed to get spreadsheet info: " + response.getContentText());
+  }
+  
+  return JSON.parse(response.getContentText());
+}
+
+// Fetch data from a specific sheet using Sheets API
+function fetchSheetData(sheetName) {
+  const range = `'${sheetName}'!A:F`;
+  const url = `${SHEETS_API_URL}/${SHEET_ID}/values/${encodeURIComponent(range)}?key=${SHEETS_API_KEY}`;
+  
+  const response = UrlFetchApp.fetch(url, {
+    method: "get",
+    muteHttpExceptions: true
+  });
+  
+  if (response.getResponseCode() === 404) {
+    Logger.log("[GAS] Sheet not found: " + sheetName);
+    return [];
+  }
+  
+  if (response.getResponseCode() !== 200) {
+    Logger.log("[GAS] Error fetching sheet: " + response.getContentText());
+    return [];
+  }
+  
+  const result = JSON.parse(response.getContentText());
+  if (!result.values || result.values.length <= 1) {
+    return [];
+  }
+  
+  // Skip header row (index 0)
+  return result.values.slice(1).map(rowToObj);
+}
+
+// Ensure a sheet exists using batchUpdate API
+function ensureSheetExists(month) {
+  const sheetInfo = getSpreadsheetInfo();
+  const sheetNames = sheetInfo.sheets.map(s => s.properties.title);
+  
+  if (sheetNames.includes(month)) {
+    Logger.log("[GAS] Sheet already exists: " + month);
+    return;
   }
   
   Logger.log("[GAS] Creating new sheet: " + month);
-  sheet = ss.insertSheet(month);
   
-  // Add headers
-  sheet.appendRow(HEADERS);
+  const payload = {
+    requests: [
+      {
+        addSheet: {
+          properties: {
+            title: month,
+            gridProperties: { rowCount: 1000, columnCount: 6 }
+          }
+        }
+      }
+    ]
+  };
   
-  // Format header row
-  sheet.getRange(1, 1, 1, HEADERS.length).setFontWeight("bold");
-  sheet.setFrozenRows(1);
+  const url = `${SHEETS_API_URL}/${SHEET_ID}:batchUpdate?key=${SHEETS_API_KEY}`;
+  const response = UrlFetchApp.fetch(url, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+  
+  if (response.getResponseCode() !== 200) {
+    throw new Error("Failed to create sheet: " + response.getContentText());
+  }
+  
+  // Now add headers to the new sheet
+  const range = `'${month}'!A1:F1`;
+  const headerUrl = `${SHEETS_API_URL}/${SHEET_ID}/values/${encodeURIComponent(range)}?key=${SHEETS_API_KEY}`;
+  const headerPayload = {
+    values: [HEADERS],
+    majorDimension: "ROWS"
+  };
+  
+  const headerRes = UrlFetchApp.fetch(headerUrl, {
+    method: "put",
+    contentType: "application/json",
+    payload: JSON.stringify(headerPayload),
+    muteHttpExceptions: true
+  });
+  
+  if (headerRes.getResponseCode() !== 200) {
+    Logger.log("⚠ Warning: Failed to add headers: " + headerRes.getContentText());
+  }
   
   Logger.log("[GAS] ✓ Sheet created: " + month);
-  return sheet;
+}
+
+// Delete a row using batchUpdate API
+function deleteSheetRow(spreadsheetInfo, sheetName, rowIndex) {
+  const sheet = spreadsheetInfo.sheets.find(s => s.properties.title === sheetName);
+  
+  if (!sheet) {
+    throw new Error("Sheet not found: " + sheetName);
+  }
+  
+  const sheetId = sheet.properties.sheetId;
+  
+  const payload = {
+    requests: [
+      {
+        deleteRange: {
+          range: {
+            sheetId: sheetId,
+            dimension: "ROWS",
+            startIndex: rowIndex - 1,
+            endIndex: rowIndex
+          },
+          shiftDimension: "ROWS"
+        }
+      }
+    ]
+  };
+  
+  const url = `${SHEETS_API_URL}/${SHEET_ID}:batchUpdate?key=${SHEETS_API_KEY}`;
+  const response = UrlFetchApp.fetch(url, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+  
+  if (response.getResponseCode() !== 200) {
+    throw new Error("Failed to delete row: " + response.getContentText());
+  }
 }
 
 // Extract month from ISO date string (YYYY-MM-DD)
@@ -401,27 +520,39 @@ function testSetup() {
   }
   Logger.log("✓ SHEET_ID configured");
   
-  // Check 2: Can access spreadsheet
+  // Check 2: SHEETS_API_KEY
+  if (!SHEETS_API_KEY || SHEETS_API_KEY.trim() === "") {
+    Logger.log("❌ SHEETS_API_KEY is NOT configured");
+    Logger.log("   → Get API key from https://console.cloud.google.com/");
+    Logger.log("   → Enable 'Google Sheets API'");
+    Logger.log("   → Create API Key (Credentials → Create Credentials → API Key)");
+    Logger.log("   → Paste key on line 9 of Code.gs");
+    return;
+  }
+  Logger.log("✓ SHEETS_API_KEY configured");
+  
+  // Check 3: Can access spreadsheet
   try {
-    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const info = getSpreadsheetInfo();
     Logger.log("✓ Spreadsheet access OK");
   } catch (err) {
     Logger.log("❌ Cannot access spreadsheet: " + err.message);
     Logger.log("   → Check SHEET_ID is correct");
+    Logger.log("   → Check SHEETS_API_KEY has access to Sheets API");
     return;
   }
   
-  // Check 3: Can create/access monthly sheets
+  // Check 4: Can create/access monthly sheets
   try {
     const month = getCurrentMonth();
-    const sheet = getOrCreateMonthSheet(month);
+    ensureSheetExists(month);
     Logger.log("✓ Sheet access/creation OK: " + month);
   } catch (err) {
     Logger.log("❌ Cannot create sheet: " + err.message);
     return;
   }
   
-  // Check 4: Try test add/get
+  // Check 5: Try test add/get
   try {
     Logger.log("\n--- Testing addExpense ---");
     const testExpense = {
