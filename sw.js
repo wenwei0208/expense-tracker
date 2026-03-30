@@ -35,42 +35,27 @@ self.addEventListener("fetch", e => {
 
   // API requests to Google Apps Script (check if it's an API call)
   if (url.host.includes('script.google.com') || url.href.includes('/exec')) {
-    // Build fetch options - be careful with body handling
-    const fetchOptions = {
-      method: e.request.method,
-      mode: 'cors',
-      credentials: 'omit'
-    };
-    
-    // Copy headers from original request
-    const headers = new Headers(e.request.headers);
-    headers.delete('Content-Length'); // Remove Content-Length to avoid conflicts
-    fetchOptions.headers = headers;
-    
-    // Only add body for non-GET requests
-    if (e.request.method !== 'GET') {
-      fetchOptions.body = e.request.body;
-      // Add duplex only when there IS a body
-      if (e.request.body) {
-        fetchOptions.duplex = 'half';
-      }
-    }
-    
+    // For API calls: make a fresh fetch request without trying to manipulate streams
     e.respondWith(
-      fetch(url.href, fetchOptions)
-        .then(res => {
-          // Log successful API calls
+      (async () => {
+        try {
+          // Clone the request to preserve the original
+          const req = e.request.clone();
+          const res = await fetch(req);
           console.log('[SW] API call successful:', url.href);
           return res;
-        })
-        .catch(err => {
-          // If offline, return JSON indicating offline
-          console.warn('[SW] API call failed (offline?):', url.href, err);
+        } catch (err) {
+          console.warn('[SW] API call failed:', url.href, err.message);
+          // Return offline response
           return new Response(
             JSON.stringify({ ok: false, error: "offline", queued: true }),
-            { headers: { "Content-Type": "application/json" } }
+            { 
+              status: 200,
+              headers: { "Content-Type": "application/json" } 
+            }
           );
-        })
+        }
+      })()
     );
     return;
   }
