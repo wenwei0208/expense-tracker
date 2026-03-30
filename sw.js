@@ -35,14 +35,21 @@ self.addEventListener("fetch", e => {
 
   // API requests to Google Apps Script (check if it's an API call)
   if (url.host.includes('script.google.com') || url.href.includes('/exec')) {
+    const fetchOptions = {
+      method: e.request.method,
+      headers: e.request.headers,
+      body: e.request.method !== 'GET' ? e.request.body : undefined,
+      mode: 'cors',
+      credentials: 'omit'
+    };
+    
+    // Only add duplex for POST requests with a body
+    if (e.request.method !== 'GET' && e.request.body) {
+      fetchOptions.duplex = 'half';
+    }
+    
     e.respondWith(
-      fetch(e.request, {
-        method: e.request.method,
-        headers: e.request.headers,
-        body: e.request.method !== 'GET' ? e.request.body : undefined,
-        mode: 'cors',
-        credentials: 'omit'
-      })
+      fetch(e.request, fetchOptions)
         .then(res => {
           // Log successful API calls
           console.log('[SW] API call successful:', url.href);
@@ -99,24 +106,53 @@ async function syncQueuedExpenses() {
 self.addEventListener("message", e => {
   if (!e.data) return;
 
-  switch (e.data.type) {
-    case "SET_API_URL":
-      // Store API URL from client
-      API_URL = e.data.url;
-      console.log('[SW] API URL set from client');
-      break;
+  const { type } = e.data;
+  
+  // Always respond to prevent "message channel closed" errors
+  if (e.ports && e.ports.length > 0) {
+    const port = e.ports[0];
+    
+    switch (type) {
+      case "SET_API_URL":
+        // Store API URL from client
+        API_URL = e.data.url;
+        console.log('[SW] API URL set from client');
+        port.postMessage({ ok: true });
+        break;
 
-    case "SYNC_COMPLETE":
-      console.log('[SW] Sync complete, showing notification');
-      self.registration.showNotification("Expenses synced!", {
-        body: "Your offline expenses have been uploaded.",
-      });
-      break;
+      case "SYNC_COMPLETE":
+        console.log('[SW] Sync complete, showing notification');
+        self.registration.showNotification("Expenses synced!", {
+          body: "Your offline expenses have been uploaded.",
+        });
+        port.postMessage({ ok: true });
+        break;
 
-    case "QUEUE_EXPENSE":
-      // The client can send a single expense with month info to queue locally
-      // This is just an acknowledgment; actual storage is in IndexedDB or localStorage
-      console.log("[SW] Queued expense for offline sync:", e.data.expense);
-      break;
+      case "QUEUE_EXPENSE":
+        // The client can send a single expense with month info to queue locally
+        console.log("[SW] Queued expense for offline sync:", e.data.expense);
+        port.postMessage({ ok: true });
+        break;
+        
+      default:
+        port.postMessage({ ok: false, error: "Unknown message type" });
+    }
+  } else {
+    // Fallback for messages without MessagePort
+    switch (type) {
+      case "SET_API_URL":
+        API_URL = e.data.url;
+        console.log('[SW] API URL set from client');
+        break;
+      case "SYNC_COMPLETE":
+        console.log('[SW] Sync complete, showing notification');
+        self.registration.showNotification("Expenses synced!", {
+          body: "Your offline expenses have been uploaded.",
+        });
+        break;
+      case "QUEUE_EXPENSE":
+        console.log("[SW] Queued expense for offline sync:", e.data.expense);
+        break;
+    }
   }
 });
