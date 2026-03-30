@@ -35,21 +35,29 @@ self.addEventListener("fetch", e => {
 
   // API requests to Google Apps Script (check if it's an API call)
   if (url.host.includes('script.google.com') || url.href.includes('/exec')) {
+    // Build fetch options - be careful with body handling
     const fetchOptions = {
       method: e.request.method,
-      headers: e.request.headers,
-      body: e.request.method !== 'GET' ? e.request.body : undefined,
       mode: 'cors',
       credentials: 'omit'
     };
     
-    // Only add duplex for POST requests with a body
-    if (e.request.method !== 'GET' && e.request.body) {
-      fetchOptions.duplex = 'half';
+    // Copy headers from original request
+    const headers = new Headers(e.request.headers);
+    headers.delete('Content-Length'); // Remove Content-Length to avoid conflicts
+    fetchOptions.headers = headers;
+    
+    // Only add body for non-GET requests
+    if (e.request.method !== 'GET') {
+      fetchOptions.body = e.request.body;
+      // Add duplex only when there IS a body
+      if (e.request.body) {
+        fetchOptions.duplex = 'half';
+      }
     }
     
     e.respondWith(
-      fetch(e.request, fetchOptions)
+      fetch(url.href, fetchOptions)
         .then(res => {
           // Log successful API calls
           console.log('[SW] API call successful:', url.href);

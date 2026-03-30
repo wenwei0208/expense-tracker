@@ -25,24 +25,18 @@ function doPost(e) {
   return handleRequest(e);
 }
 
+function doOptions(e) {
+  // Handle CORS preflight requests
+  return buildJsonResponse({ ok: true });
+}
+
 // ── HANDLE REQUEST WITH CORS ─────────────────────────────────
 function handleRequest(e) {
-  const output = ContentService.createTextOutput();
-  output.setMimeType(ContentService.MimeType.JSON);
-
-  // Add CORS headers
-  const headers = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type"
-  };
-  for (const key in headers) output.setHeader(key, headers[key]);
-
   try {
-    // Validate SHEET_ID
+    // Validate SHEET_ID first
     if (!SHEET_ID || SHEET_ID.trim() === "") {
       Logger.log("❌ SHEET_ID not configured!");
-      throw new Error("SHEET_ID not configured. Update googleAppsScripts.js line 7 with your Sheet ID.");
+      return buildJsonResponse({ ok: false, error: "SHEET_ID not configured. Update line 7 with your Sheet ID." });
     }
 
     // Parse params and body
@@ -64,12 +58,17 @@ function handleRequest(e) {
     }
 
     Logger.log("[GAS] Result: " + JSON.stringify(result).substring(0, 100));
-    output.setContent(JSON.stringify(result));
+    return buildJsonResponse(result);
   } catch (err) {
     Logger.log("❌ [GAS] Error: " + err.message);
-    output.setContent(JSON.stringify({ ok: false, error: err.message }));
+    return buildJsonResponse({ ok: false, error: err.message });
   }
+}
 
+// Helper to build JSON response (CORS is automatic for Apps Script web apps)
+function buildJsonResponse(data) {
+  const output = ContentService.createTextOutput(JSON.stringify(data));
+  output.setMimeType(ContentService.MimeType.JSON);
   return output;
 }
 
