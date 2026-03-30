@@ -492,15 +492,38 @@ document.addEventListener('DOMContentLoaded', () => {
   populateReportMonths();
 
   // Online/offline events
-  window.addEventListener('offline', () => document.getElementById('offline-bar').classList.add('show'));
-  window.addEventListener('online',  () => { document.getElementById('offline-bar').classList.remove('show'); flushQueue(); });
+  window.addEventListener('offline', () => {
+    console.log('[App] Going offline');
+    document.getElementById('offline-bar').classList.add('show');
+  });
+  window.addEventListener('online',  () => {
+    console.log('[App] Coming online, flushing queue');
+    document.getElementById('offline-bar').classList.remove('show');
+    flushQueue();
+  });
   if (!navigator.onLine) document.getElementById('offline-bar').classList.add('show');
 
-  // Service worker
+  // Service worker registration
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(()=>{});
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      console.log('[App] Service Worker registered');
+      // Send API_URL to SW on registration
+      if (navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: 'SET_API_URL', url: API_URL });
+      }
+    }).catch(err => {
+      console.warn('[App] Service Worker registration failed:', err);
+    });
+    
     navigator.serviceWorker.addEventListener('message', e => {
-      if (e.data?.type === 'sync-complete') loadRecent();
+      if (e.data?.type === 'sync-expenses') {
+        console.log('[App] SW requesting sync');
+        flushQueue();
+      }
+      if (e.data?.type === 'sync-complete') {
+        console.log('[App] Sync complete from SW');
+        loadRecent();
+      }
     });
   }
 
@@ -520,31 +543,120 @@ function switchTab(tab) {
 }
 
 // ── API HELPERS ───────────────────────────────────────────
-async function apiCall(params) {
+async function apiCall(params, retries = 2) {
   if (!API_URL) { toast('Set your API URL in Settings ⚙'); return null; }
   const url = new URL(API_URL);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  const res = await fetch(url.toString());
-  return res.json();
+  
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000); // 10s timeout
+      
+      const res = await fetch(url.toString(), {
+        signal: controller.signal,
+        mode: 'cors',
+        credentials: 'omit'
+      });
+      clearTimeout(timeout);
+      
+      if (!res.ok) {
+        console.warn(`[API] Got ${res.status} from API query`, params);
+        if (attempt < retries) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          continue;
+        }
+        return { ok: false, error: `HTTP ${res.status}` };
+      }
+      
+      const data = await res.json();
+      console.log('[API] Query successful:', params);
+      return data;
+    } catch (err) {
+      console.warn(`[API] Fetch error (attempt ${attempt + 1}/${retries + 1}):`, err.message);
+      if (attempt < retries) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } else {
+        toast('API call failed — check connection');
+        return null;
+      }
+    }
+  }
+  return null;
 }
 
-async function apiPost(body) {
-  if (!API_URL) { toast('Set your API URL in Settings ⚙'); return null; }
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  return res.json();
+async function apiPost(body, retries = 3) {
+  if (!API_URL) { 
+    toast('Set your API URL in Settings ⚙');
+    console.warn('[API] No API_URL configured');
+    return null;
+  }
+  
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000); // 15s timeout for POST
+      
+      console.log(`[API] Posting (attempt ${attempt + 1}/${retries + 1}):`, body.action);
+      
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+        mode: 'cors',
+        credentials: 'omit'
+      });
+      clearTimeout(timeout);
+      
+      if (!res.ok) {
+        console.warn(`[API] Got ${res.status} from API post`, body);
+        if (attempt < retries) {
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          continue;
+        }
+        return { ok: false, error: `HTTP ${res.status}` };
+      }
+      
+      const data = await res.json();
+      console.log('[API] Post successful:', body.action, data);
+      return data;
+    } catch (err) {
+      console.warn(`[API] Post error (attempt ${attempt + 1}/${retries + 1}):`, err.message);
+      if (err.name === 'AbortError') {
+        console.warn('[API] Request timeout');
+      }
+      if (attempt < retries) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+      } else {
+        console.error('[API] All retries exhausted for:', body.action);
+        return null;
+      }
+    }
+  }
+  return null;
 }
 
 async function pingApi() {
   const dot = document.getElementById('api-dot');
-  if (!API_URL) { dot.className = 'api-dot'; return; }
+  if (!API_URL) { 
+    dot.className = 'api-dot';
+    console.log('[App] No API_URL to ping');
+    return;
+  }
   try {
-    const r = await apiCall({ action: 'ping' });
-    dot.className = r?.ok ? 'api-dot ok' : 'api-dot err';
-  } catch { dot.className = 'api-dot err'; }
+    console.log('[App] Pinging API...');
+    const r = await apiCall({ action: 'ping' }, 1);
+    const isOk = r?.ok === true;
+    dot.className = isOk ? 'api-dot ok' : 'api-dot err';
+    console.log('[App] Ping result:', isOk ? 'OK' : 'FAILED');
+  } catch (err) {
+    console.error('[App] Ping error:', err);
+    dot.className = 'api-dot err';
+  }
 }
 
 // ── ADD EXPENSE ───────────────────────────────────────────
@@ -916,9 +1028,28 @@ function exportMonth(month) {
 
 // ── SETTINGS ─────────────────────────────────────────────
 function saveApiUrl() {
+  const oldUrl = API_URL;
   API_URL = document.getElementById('api-url-input').value.trim();
   localStorage.setItem('api_url', API_URL);
+  
+  console.log('[Settings] API URL saved:', API_URL);
+  
+  // Send updated API_URL to service worker
+  if (navigator.serviceWorker?.controller) {
+    navigator.serviceWorker.controller.postMessage({ 
+      type: 'SET_API_URL', 
+      url: API_URL 
+    });
+    console.log('[Settings] Sent API_URL to service worker');
+  }
+  
   pingApi();
+  
+  // If URL changed and we have queued expenses, trigger sync
+  if (oldUrl !== API_URL && offlineQueue.length > 0) {
+    console.log('[Settings] API URL changed, attempting to sync queue');
+    setTimeout(() => flushQueue(), 500);
+  }
 }
 
 function saveApiKey() {
@@ -951,27 +1082,84 @@ function clearLocal() {
 function queueOffline(expense) {
   offlineQueue.push(expense);
   localStorage.setItem('offline_queue', JSON.stringify(offlineQueue));
+  console.log('[Queue] Queued expense:', expense.title, '| Queue size:', offlineQueue.length);
 }
 
 async function flushQueue() {
-  if (!offlineQueue.length || !API_URL) return;
+  if (!navigator.onLine) {
+    console.log('[Queue] Still offline, not flushing');
+    return;
+  }
+  
+  if (!offlineQueue.length) {
+    console.log('[Queue] Nothing to sync');
+    return;
+  }
+  
+  if (!API_URL) {
+    console.warn('[Queue] No API_URL configured, cannot flush');
+    toast('Set your API URL in Settings to sync ⚙');
+    return;
+  }
+
   const toSync = [...offlineQueue];
+  const initialCount = toSync.length;
+  console.log(`[Queue] Starting sync for ${initialCount} expense(s)`);
+  
   offlineQueue = [];
   localStorage.setItem('offline_queue', '[]');
-  for (const exp of toSync) {
+  
+  let successCount = 0;
+  let failCount = 0;
+
+  for (let i = 0; i < toSync.length; i++) {
+    const exp = toSync[i];
     try {
+      console.log(`[Queue] Syncing expense ${i + 1}/${toSync.length}:`, exp.title);
       const res = await apiPost({ action: 'addExpense', ...exp });
+      
       if (res?.ok) {
-        localCache = localCache.map(e => e.id && e.id.startsWith('tmp_') ? res.expense : e);
+        console.log('[Queue] ✓ Synced:', exp.title);
+        // Update local cache with server ID if provided
+        if (res.expense?.id) {
+          localCache = localCache.map(e => 
+            e.id?.startsWith('tmp_') && e.title === exp.title ? res.expense : e
+          );
+        }
+        successCount++;
       } else {
+        console.warn('[Queue] ✗ Sync failed for:', exp.title, res?.error);
         offlineQueue.push(exp);
+        failCount++;
       }
-    } catch { offlineQueue.push(exp); }
+    } catch (err) {
+      console.error('[Queue] Exception syncing:', exp.title, err.message);
+      offlineQueue.push(exp);
+      failCount++;
+    }
   }
+
   localStorage.setItem('offline_queue', JSON.stringify(offlineQueue));
   saveLocalCache();
-  toast(`Synced ${toSync.length - offlineQueue.length} expenses ✓`);
+
+  if (successCount > 0) {
+    console.log(`[Queue] Sync complete: ${successCount}/${initialCount} successful`);
+    const msg = successCount === initialCount 
+      ? `Synced ${successCount} expense${successCount !== 1 ? 's' : ''} ✓`
+      : `Synced ${successCount}/${initialCount} (${failCount} pending)`;
+    toast(msg);
+  }
+  
+  if (failCount > 0) {
+    console.warn(`[Queue] ${failCount} expenses still pending (will retry when online)`);
+  }
+
   loadRecent();
+  
+  // Notify service worker of sync completion
+  if (navigator.serviceWorker?.controller) {
+    navigator.serviceWorker.controller.postMessage({ type: 'SYNC_COMPLETE' });
+  }
 }
 
 // ── RENDER HELPERS ────────────────────────────────────────
