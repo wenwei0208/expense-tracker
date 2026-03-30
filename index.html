@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="Expenses"/>
+<meta name="theme-color" content="#0f0f0f"/>
+<link rel="manifest" href="manifest.json"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<title>Expense Tracker</title>
+<style>
+/* ── RESET & BASE ─────────────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0f0f0f;
+  --bg2:#1a1a1a;
+  --bg3:#242424;
+  --bg4:#2e2e2e;
+  --line:#333;
+  --line2:#444;
+  --txt:#f0ede8;
+  --txt2:#a09d98;
+  --txt3:#6b6865;
+  --accent:#e8c97a;
+  --accent2:#c4a45a;
+  --danger:#e05252;
+  --success:#5cb87a;
+  --r:12px;
+  --r-sm:8px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bot: env(safe-area-inset-bottom, 0px);
+}
+html{height:100%;background:var(--bg)}
+body{
+  font-family:'DM Mono',monospace;
+  background:var(--bg);
+  color:var(--txt);
+  min-height:100%;
+  max-width:480px;
+  margin:0 auto;
+  padding-bottom:calc(80px + var(--safe-bot));
+  padding-top:calc(var(--safe-top));
+  overflow-x:hidden;
+}
+
+/* ── TYPOGRAPHY ───────────────────────────────────────────── */
+.serif{font-family:'DM Serif Display',serif}
+h1{font-family:'DM Serif Display',serif;font-size:28px;font-weight:400;letter-spacing:-.5px}
+h2{font-family:'DM Serif Display',serif;font-size:20px;font-weight:400}
+h3{font-size:11px;font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:var(--txt3)}
+
+/* ── HEADER ───────────────────────────────────────────────── */
+.header{
+  padding:20px 20px 0;
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+}
+.header-title{line-height:1}
+.header-date{font-size:11px;color:var(--txt3);margin-top:4px;letter-spacing:.05em}
+.api-dot{
+  width:8px;height:8px;border-radius:50%;
+  background:var(--txt3);
+  margin-top:6px;
+  transition:background .3s;
+}
+.api-dot.ok{background:var(--success)}
+.api-dot.err{background:var(--danger)}
+
+/* ── BOTTOM NAV ───────────────────────────────────────────── */
+.nav{
+  position:fixed;
+  bottom:0;left:50%;
+  transform:translateX(-50%);
+  width:100%;max-width:480px;
+  background:var(--bg2);
+  border-top:1px solid var(--line);
+  display:flex;
+  padding-bottom:var(--safe-bot);
+  z-index:100;
+}
+.nav-btn{
+  flex:1;
+  background:none;border:none;
+  padding:12px 0 10px;
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+  cursor:pointer;
+  color:var(--txt3);
+  font-family:'DM Mono',monospace;
+  font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+  transition:color .2s;
+}
+.nav-btn.active{color:var(--accent)}
+.nav-icon{font-size:20px;line-height:1}
+
+/* ── PANELS ───────────────────────────────────────────────── */
+.panel{display:none;padding:24px 20px 0;animation:fadeUp .25s ease}
+.panel.active{display:block}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* ── FORM ELEMENTS ────────────────────────────────────────── */
+.field{margin-bottom:14px}
+.field label{display:block;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--txt3);margin-bottom:6px}
+.field input,.field select,.field textarea{
+  width:100%;
+  background:var(--bg2);
+  border:1px solid var(--line);
+  border-radius:var(--r-sm);
+  color:var(--txt);
+  font-family:'DM Mono',monospace;
+  font-size:14px;
+  padding:12px 14px;
+  outline:none;
+  transition:border-color .2s;
+  -webkit-appearance:none;
+}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--accent)}
+.field select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23666' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px}
+.row-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+/* ── BUTTONS ──────────────────────────────────────────────── */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  font-family:'DM Mono',monospace;
+  font-size:12px;letter-spacing:.08em;text-transform:uppercase;
+  border-radius:var(--r-sm);
+  padding:13px 20px;
+  cursor:pointer;
+  border:1px solid var(--line2);
+  background:var(--bg3);
+  color:var(--txt);
+  transition:all .15s;
+  width:100%;
+}
+.btn:active{transform:scale(.97);opacity:.85}
+.btn-accent{background:var(--accent);border-color:var(--accent);color:#0f0f0f;font-weight:500}
+.btn-danger{border-color:var(--danger);color:var(--danger)}
+.btn-sm{padding:8px 14px;font-size:11px;width:auto}
+.btn-row{display:flex;gap:10px;margin-top:4px}
+
+/* ── METRIC CARDS ─────────────────────────────────────────── */
+.metrics{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:24px}
+.metric{
+  background:var(--bg2);
+  border:1px solid var(--line);
+  border-radius:var(--r);
+  padding:16px;
+}
+.metric .m-label{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--txt3);margin-bottom:6px}
+.metric .m-val{font-family:'DM Serif Display',serif;font-size:24px;color:var(--txt)}
+.metric .m-val.accent{color:var(--accent)}
+
+/* ── EXPENSE LIST ─────────────────────────────────────────── */
+.expense-list{display:flex;flex-direction:column;gap:1px;background:var(--line)}
+.expense-card{
+  background:var(--bg);
+  padding:14px 16px;
+  display:flex;align-items:center;gap:12px;
+  transition:background .15s;
+}
+.expense-card:first-child{border-radius:var(--r) var(--r) 0 0}
+.expense-card:last-child{border-radius:0 0 var(--r) var(--r)}
+.expense-card:only-child{border-radius:var(--r)}
+.expense-card:active{background:var(--bg2)}
+.exp-dot{
+  width:36px;height:36px;border-radius:10px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:16px;flex-shrink:0;
+  background:var(--bg3);
+}
+.exp-body{flex:1;min-width:0}
+.exp-title{font-size:14px;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.exp-meta{font-size:11px;color:var(--txt3);margin-top:2px}
+.exp-right{text-align:right;flex-shrink:0}
+.exp-amt{font-family:'DM Serif Display',serif;font-size:18px;color:var(--txt)}
+.exp-del{
+  background:none;border:none;
+  color:var(--txt3);font-size:18px;cursor:pointer;
+  padding:4px 8px;border-radius:6px;
+  transition:all .15s;
+  flex-shrink:0;
+}
+.exp-del:active{color:var(--danger);background:rgba(224,82,82,.15)}
+.exp-cat{font-size:10px;letter-spacing:.08em;color:var(--accent2);margin-top:2px}
+
+/* ── LIST WRAPPER ─────────────────────────────────────────── */
+.list-wrap{
+  border:1px solid var(--line);
+  border-radius:var(--r);
+  overflow:hidden;
+}
+
+/* ── SECTION HEADER ───────────────────────────────────────── */
+.sec-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.filters{display:flex;gap:8px;margin-bottom:16px;overflow-x:auto;padding-bottom:2px}
+.filters::-webkit-scrollbar{display:none}
+.chip{
+  flex-shrink:0;
+  background:var(--bg2);border:1px solid var(--line);
+  border-radius:20px;
+  padding:6px 14px;
+  font-family:'DM Mono',monospace;font-size:11px;
+  color:var(--txt2);cursor:pointer;
+  transition:all .15s;white-space:nowrap;
+}
+.chip.active{background:var(--accent);border-color:var(--accent);color:#0f0f0f}
+
+/* ── UPLOAD / SCAN ────────────────────────────────────────── */
+.drop-zone{
+  border:1px dashed var(--line2);
+  border-radius:var(--r);
+  padding:40px 20px;
+  text-align:center;
+  cursor:pointer;
+  transition:all .2s;
+  margin-bottom:16px;
+}
+.drop-zone:active{background:var(--bg2);border-color:var(--accent)}
+.drop-icon{font-size:40px;margin-bottom:12px;display:block}
+.drop-label{font-size:13px;color:var(--txt2)}
+.drop-sub{font-size:11px;color:var(--txt3);margin-top:6px}
+.preview-img{width:100%;border-radius:var(--r);margin-bottom:16px;display:none;max-height:260px;object-fit:cover}
+
+/* ── SCAN RESULTS ─────────────────────────────────────────── */
+.scan-result-wrap{
+  background:var(--bg2);border:1px solid var(--line);
+  border-radius:var(--r);padding:16px;margin-bottom:16px;
+}
+.scan-row{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 0;border-bottom:1px solid var(--line);
+  gap:10px;
+}
+.scan-row:last-child{border-bottom:none;padding-bottom:0}
+.scan-name{font-size:13px;color:var(--txt);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.scan-price{font-family:'DM Serif Display',serif;font-size:16px;color:var(--accent);flex-shrink:0}
+
+/* ── CHART ────────────────────────────────────────────────── */
+.chart-wrap{position:relative;width:100%;height:180px;margin:16px 0}
+
+/* ── CAT BREAKDOWN ────────────────────────────────────────── */
+.cat-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.cat-item:last-child{border-bottom:none}
+.cat-bar-wrap{flex:1;height:4px;background:var(--bg4);border-radius:2px;overflow:hidden}
+.cat-bar{height:100%;border-radius:2px;background:var(--accent);transition:width .5s ease}
+.cat-name{font-size:12px;color:var(--txt2);width:110px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cat-amt{font-size:12px;color:var(--txt);width:72px;text-align:right;flex-shrink:0}
+
+/* ── TOAST ────────────────────────────────────────────────── */
+.toast{
+  position:fixed;bottom:calc(88px + var(--safe-bot));
+  left:50%;transform:translateX(-50%) translateY(10px);
+  background:var(--txt);color:var(--bg);
+  font-family:'DM Mono',monospace;font-size:12px;
+  padding:10px 20px;border-radius:30px;
+  white-space:nowrap;
+  opacity:0;pointer-events:none;
+  transition:all .25s;z-index:200;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ── SPINNER ──────────────────────────────────────────────── */
+.spinner{
+  display:inline-block;width:16px;height:16px;
+  border:2px solid var(--line2);border-top-color:var(--accent);
+  border-radius:50%;animation:spin .7s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── EMPTY STATE ──────────────────────────────────────────── */
+.empty{
+  text-align:center;padding:48px 20px;
+  color:var(--txt3);font-size:13px;
+}
+.empty-icon{font-size:36px;display:block;margin-bottom:12px;opacity:.4}
+
+/* ── OFFLINE BANNER ───────────────────────────────────────── */
+.offline-bar{
+  background:var(--danger);color:#fff;
+  font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+  text-align:center;padding:6px;
+  display:none;
+}
+.offline-bar.show{display:block}
+
+/* ── SETTINGS ─────────────────────────────────────────────── */
+.setting-row{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:16px;
+  background:var(--bg2);border:1px solid var(--line);border-radius:var(--r);
+  margin-bottom:10px;
+}
+.setting-label{font-size:13px;color:var(--txt)}
+.setting-sub{font-size:11px;color:var(--txt3);margin-top:3px}
+.setting-row input{
+  background:var(--bg3);border:1px solid var(--line2);
+  border-radius:var(--r-sm);color:var(--txt);
+  font-family:'DM Mono',monospace;font-size:12px;
+  padding:8px 10px;width:100%;margin-top:10px;outline:none;
+}
+.setting-row input:focus{border-color:var(--accent)}
+.setting-col{flex:1}
+.divider{height:1px;background:var(--line);margin:20px 0}
+</style>
+</head>
+<body>
+
+<div class="offline-bar" id="offline-bar">No connection — changes will sync when online</div>
+
+<!-- ── HEADER ────────────────────────────────────────────── -->
+<div class="header">
+  <div class="header-title">
+    <h1 class="serif">Expenses</h1>
+    <div class="header-date" id="header-date"></div>
+  </div>
+  <div class="api-dot" id="api-dot" title="API status"></div>
+</div>
+
+<!-- ── PANELS ────────────────────────────────────────────── -->
+
+<!-- ADD -->
+<div class="panel active" id="panel-add">
+  <div style="margin-bottom:24px"></div>
+  <div class="field">
+    <label>What did you spend on?</label>
+    <input type="text" id="f-title" placeholder="Coffee, Grab, lunch…" autocomplete="off"/>
+  </div>
+  <div class="row-2">
+    <div class="field">
+      <label>Amount (SGD)</label>
+      <input type="number" id="f-amount" placeholder="0.00" step="0.01" min="0" inputmode="decimal"/>
+    </div>
+    <div class="field">
+      <label>Category</label>
+      <select id="f-cat">
+        <option>Food & drinks</option>
+        <option>Transport</option>
+        <option>Shopping</option>
+        <option>Entertainment</option>
+        <option>Health</option>
+        <option>Utilities</option>
+        <option>Other</option>
+      </select>
+    </div>
+  </div>
+  <div class="row-2">
+    <div class="field">
+      <label>Date &amp; time</label>
+      <input type="datetime-local" id="f-date"/>
+    </div>
+    <div class="field">
+      <label>Notes</label>
+      <input type="text" id="f-notes" placeholder="Optional…"/>
+    </div>
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-accent" id="btn-add" onclick="addExpense()">Add expense</button>
+    <button class="btn btn-sm" onclick="clearForm()" style="width:auto">Clear</button>
+  </div>
+
+  <div class="divider"></div>
+  <h3 style="margin-bottom:12px">Recent</h3>
+  <div id="recent-list"></div>
+</div>
+
+<!-- SCAN -->
+<div class="panel" id="panel-scan">
+  <div style="margin-bottom:24px"></div>
+  <div class="drop-zone" onclick="document.getElementById('file-input').click()">
+    <input type="file" id="file-input" accept="image/*" capture="environment" style="display:none" onchange="handleFile(this)"/>
+    <span class="drop-icon">📄</span>
+    <div class="drop-label">Tap to photograph or upload receipt</div>
+    <div class="drop-sub">JPG · PNG · HEIC</div>
+  </div>
+  <img id="preview" class="preview-img"/>
+  <div id="scan-status"></div>
+  <div id="scan-results"></div>
+</div>
+
+<!-- RECORDS -->
+<div class="panel" id="panel-records">
+  <div style="margin-bottom:24px"></div>
+  <div class="metrics" id="metrics"></div>
+  <div class="sec-head">
+    <h3>All expenses</h3>
+    <button class="btn btn-sm" onclick="loadRecords()">↺ Refresh</button>
+  </div>
+  <div class="filters" id="cat-filters"></div>
+  <div id="records-list"></div>
+</div>
+
+<!-- REPORT -->
+<div class="panel" id="panel-report">
+  <div style="margin-bottom:24px"></div>
+  <div class="sec-head">
+    <h3>Monthly report</h3>
+    <select id="report-month" onchange="loadReport()" style="background:var(--bg2);border:1px solid var(--line);border-radius:var(--r-sm);color:var(--txt);font-family:'DM Mono',monospace;font-size:11px;padding:6px 10px;outline:none"></select>
+  </div>
+  <div id="report-content"></div>
+</div>
+
+<!-- SETTINGS -->
+<div class="panel" id="panel-settings">
+  <div style="margin-bottom:24px"></div>
+  <div class="setting-row" style="flex-direction:column;align-items:flex-start">
+    <div class="setting-col">
+      <div class="setting-label">Google Apps Script URL</div>
+      <div class="setting-sub">Paste your deployment URL here</div>
+      <input type="url" id="api-url-input" placeholder="https://script.google.com/macros/s/…/exec" oninput="saveApiUrl()"/>
+    </div>
+  </div>
+  <div class="setting-row" style="flex-direction:column;align-items:flex-start">
+    <div class="setting-col">
+      <div class="setting-label">Anthropic API key</div>
+      <div class="setting-sub">For receipt scanning (stored locally)</div>
+      <input type="password" id="api-key-input" placeholder="sk-ant-…" oninput="saveApiKey()"/>
+    </div>
+  </div>
+  <div style="margin-top:16px">
+    <button class="btn" onclick="testConnection()" id="btn-test">Test connection</button>
+  </div>
+  <div class="divider"></div>
+  <h3 style="margin-bottom:12px">Export</h3>
+  <button class="btn" onclick="exportMonth()" style="margin-bottom:10px">Export this month as Excel</button>
+  <div class="divider"></div>
+  <h3 style="margin-bottom:12px">Danger zone</h3>
+  <button class="btn btn-danger" onclick="clearLocal()">Clear local cache</button>
+</div>
+
+<!-- ── BOTTOM NAV ─────────────────────────────────────────── -->
+<nav class="nav">
+  <button class="nav-btn active" id="nav-add" onclick="switchTab('add')">
+    <span class="nav-icon">＋</span>Add
+  </button>
+  <button class="nav-btn" id="nav-scan" onclick="switchTab('scan')">
+    <span class="nav-icon">📷</span>Scan
+  </button>
+  <button class="nav-btn" id="nav-records" onclick="switchTab('records')">
+    <span class="nav-icon">📋</span>Records
+  </button>
+  <button class="nav-btn" id="nav-report" onclick="switchTab('report')">
+    <span class="nav-icon">📊</span>Report
+  </button>
+  <button class="nav-btn" id="nav-settings" onclick="switchTab('settings')">
+    <span class="nav-icon">⚙</span>Settings
+  </button>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<!-- Chart.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<!-- SheetJS for Excel export -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<script>
+// ── CONFIG ────────────────────────────────────────────────
+let API_URL  = localStorage.getItem('api_url') || '';
+let API_KEY  = localStorage.getItem('api_key') || '';
+let localCache = JSON.parse(localStorage.getItem('local_expenses') || '[]');
+let offlineQueue = JSON.parse(localStorage.getItem('offline_queue') || '[]');
+let activeFilter = 'All';
+let reportChart = null;
+
+const CAT_EMOJI = {
+  'Food & drinks':'🍜','Transport':'🚌','Shopping':'🛍',
+  'Entertainment':'🎮','Health':'💊','Utilities':'⚡','Other':'📦'
+};
+
+// ── INIT ──────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  // Set header date
+  document.getElementById('header-date').textContent =
+    new Date().toLocaleDateString('en-SG', {weekday:'long',day:'numeric',month:'long',year:'numeric'});
+
+  // Set datetime-local default
+  document.getElementById('f-date').value = nowLocal();
+
+  // Restore settings
+  if (API_URL) document.getElementById('api-url-input').value = API_URL;
+  if (API_KEY) document.getElementById('api-key-input').value = API_KEY;
+
+  // Check API
+  pingApi();
+
+  // Load initial data
+  loadRecent();
+  buildCatFilters();
+  populateReportMonths();
+
+  // Online/offline events
+  window.addEventListener('offline', () => document.getElementById('offline-bar').classList.add('show'));
+  window.addEventListener('online',  () => { document.getElementById('offline-bar').classList.remove('show'); flushQueue(); });
+  if (!navigator.onLine) document.getElementById('offline-bar').classList.add('show');
+
+  // Service worker
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+    navigator.serviceWorker.addEventListener('message', e => {
+      if (e.data?.type === 'sync-complete') loadRecent();
+    });
+  }
+
+  // Check tab from URL
+  const urlTab = new URLSearchParams(location.search).get('tab');
+  if (urlTab) switchTab(urlTab);
+});
+
+// ── TAB NAVIGATION ────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('panel-' + tab).classList.add('active');
+  document.getElementById('nav-' + tab).classList.add('active');
+  if (tab === 'records') loadRecords();
+  if (tab === 'report')  loadReport();
+}
+
+// ── API HELPERS ───────────────────────────────────────────
+async function apiCall(params) {
+  if (!API_URL) { toast('Set your API URL in Settings ⚙'); return null; }
+  const url = new URL(API_URL);
+  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+  const res = await fetch(url.toString());
+  return res.json();
+}
+
+async function apiPost(body) {
+  if (!API_URL) { toast('Set your API URL in Settings ⚙'); return null; }
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  return res.json();
+}
+
+async function pingApi() {
+  const dot = document.getElementById('api-dot');
+  if (!API_URL) { dot.className = 'api-dot'; return; }
+  try {
+    const r = await apiCall({ action: 'ping' });
+    dot.className = r?.ok ? 'api-dot ok' : 'api-dot err';
+  } catch { dot.className = 'api-dot err'; }
+}
+
+// ── ADD EXPENSE ───────────────────────────────────────────
+async function addExpense(data) {
+  const title  = data?.title  || document.getElementById('f-title').value.trim();
+  const amount = parseFloat(data?.amount || document.getElementById('f-amount').value);
+  const cat    = data?.cat    || document.getElementById('f-cat').value;
+  const date   = data?.date   || document.getElementById('f-date').value;
+  const notes  = data?.notes  || document.getElementById('f-notes').value.trim();
+
+  if (!title)         { toast('Enter a title'); return; }
+  if (!amount || amount <= 0) { toast('Enter a valid amount'); return; }
+
+  const expense = { title, amount, category: cat, date, notes };
+
+  const btn = document.getElementById('btn-add');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'; }
+
+  // Optimistic local update
+  const tempId = 'tmp_' + Date.now();
+  const localExp = { ...expense, id: tempId };
+  localCache.unshift(localExp);
+  saveLocalCache();
+  loadRecent();
+
+  if (navigator.onLine) {
+    try {
+      const res = await apiPost({ action: 'addExpense', ...expense });
+      if (res?.ok) {
+        // Replace temp with real ID
+        localCache = localCache.map(e => e.id === tempId ? res.expense : e);
+        saveLocalCache();
+        toast('Expense added ✓');
+      } else {
+        queueOffline(expense);
+        toast('Saved locally — will sync');
+      }
+    } catch {
+      queueOffline(expense);
+      toast('Saved locally — will sync');
+    }
+  } else {
+    queueOffline(expense);
+    toast('Saved offline — will sync');
+  }
+
+  clearForm();
+  loadRecent();
+  if (btn) { btn.disabled = false; btn.textContent = 'Add expense'; }
+}
+
+function clearForm() {
+  document.getElementById('f-title').value   = '';
+  document.getElementById('f-amount').value  = '';
+  document.getElementById('f-notes').value   = '';
+  document.getElementById('f-date').value    = nowLocal();
+}
+
+// ── DELETE ────────────────────────────────────────────────
+async function deleteExpense(id) {
+  if (!confirm('Delete this expense?')) return;
+  localCache = localCache.filter(e => e.id !== id);
+  saveLocalCache();
+  loadRecent();
+  loadRecords();
+
+  if (navigator.onLine && !id.startsWith('tmp_')) {
+    try { await apiPost({ action: 'deleteExpense', id }); } catch {}
+  }
+  toast('Deleted');
+}
+
+// ── LOAD RECENT (add tab) ─────────────────────────────────
+function loadRecent() {
+  const el = document.getElementById('recent-list');
+  const items = localCache.slice(0, 5);
+  if (!items.length) {
+    el.innerHTML = '<div class="empty"><span class="empty-icon">💸</span>No expenses yet</div>';
+    return;
+  }
+  el.innerHTML = renderList(items);
+}
+
+// ── LOAD RECORDS (records tab) ────────────────────────────
+async function loadRecords() {
+  const el = document.getElementById('records-list');
+  el.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+
+  let expenses = localCache;
+
+  // Try to get fresh from API
+  if (navigator.onLine && API_URL) {
+    try {
+      const res = await apiCall({ action: 'getExpenses' });
+      if (res?.ok) {
+        expenses = res.expenses;
+        // Merge with local (offline) items
+        const serverIds = new Set(expenses.map(e => e.id));
+        const offlineOnly = localCache.filter(e => e.id.startsWith('tmp_') && !serverIds.has(e.id));
+        expenses = [...offlineOnly, ...expenses];
+        localCache = expenses;
+        saveLocalCache();
+      }
+    } catch {}
+  }
+
+  // Apply category filter
+  let filtered = activeFilter === 'All' ? expenses : expenses.filter(e => e.category === activeFilter);
+
+  updateMetrics(expenses);
+
+  if (!filtered.length) {
+    el.innerHTML = '<div class="empty"><span class="empty-icon">📭</span>No expenses found</div>';
+    return;
+  }
+  el.innerHTML = `<div class="list-wrap">${renderList(filtered)}</div>`;
+}
+
+function updateMetrics(expenses) {
+  const now = new Date();
+  const thisMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const monthExp  = expenses.filter(e => String(e.date).startsWith(thisMonth));
+  const total     = monthExp.reduce((s, e) => s + e.amount, 0);
+  const avg       = monthExp.length ? total / monthExp.length : 0;
+  document.getElementById('metrics').innerHTML = `
+    <div class="metric">
+      <div class="m-label">This month</div>
+      <div class="m-val accent">$${total.toFixed(2)}</div>
+    </div>
+    <div class="metric">
+      <div class="m-label">Transactions</div>
+      <div class="m-val">${monthExp.length}</div>
+    </div>
+    <div class="metric">
+      <div class="m-label">Avg. per item</div>
+      <div class="m-val">$${avg.toFixed(2)}</div>
+    </div>
+    <div class="metric">
+      <div class="m-label">All time</div>
+      <div class="m-val">$${expenses.reduce((s,e)=>s+e.amount,0).toFixed(2)}</div>
+    </div>
+  `;
+}
+
+function buildCatFilters() {
+  const cats = ['All', 'Food & drinks', 'Transport', 'Shopping', 'Entertainment', 'Health', 'Utilities', 'Other'];
+  document.getElementById('cat-filters').innerHTML = cats.map(c =>
+    `<div class="chip${c === activeFilter ? ' active' : ''}" onclick="setFilter('${c}')">${c}</div>`
+  ).join('');
+}
+
+function setFilter(cat) {
+  activeFilter = cat;
+  buildCatFilters();
+  loadRecords();
+}
+
+// ── REPORT ────────────────────────────────────────────────
+function populateReportMonths() {
+  const sel = document.getElementById('report-month');
+  const months = [];
+  const now = new Date();
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const val = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const label = d.toLocaleDateString('en-SG', {month:'long', year:'numeric'});
+    months.push(`<option value="${val}">${label}</option>`);
+  }
+  sel.innerHTML = months.join('');
+}
+
+async function loadReport() {
+  const month = document.getElementById('report-month').value;
+  const el = document.getElementById('report-content');
+  el.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+
+  let data;
+  if (navigator.onLine && API_URL) {
+    try {
+      const res = await apiCall({ action: 'getMonthly', month });
+      if (res?.ok) data = res;
+    } catch {}
+  }
+
+  if (!data) {
+    // Build from local cache
+    const expenses = localCache.filter(e => String(e.date).startsWith(month));
+    const total = expenses.reduce((s, e) => s + e.amount, 0);
+    const byCat = {}, byDay = {};
+    expenses.forEach(e => {
+      byCat[e.category] = (byCat[e.category] || 0) + e.amount;
+      const d = String(e.date).slice(0, 10);
+      byDay[d] = (byDay[d] || 0) + e.amount;
+    });
+    const days = Object.keys(byDay);
+    data = { total, count: expenses.length, dailyAvg: days.length ? total/days.length : 0, byCat, byDay, expenses, topCategory: Object.entries(byCat).sort((a,b)=>b[1]-a[1])[0]?.[0] };
+  }
+
+  renderReport(data, month);
+}
+
+function renderReport(data, month) {
+  const el = document.getElementById('report-content');
+  const topCats = Object.entries(data.byCat || {}).sort((a,b) => b[1]-a[1]);
+  const dayKeys = Object.keys(data.byDay || {}).sort();
+
+  el.innerHTML = `
+    <div class="metrics">
+      <div class="metric"><div class="m-label">Total</div><div class="m-val accent">$${(data.total||0).toFixed(2)}</div></div>
+      <div class="metric"><div class="m-label">Transactions</div><div class="m-val">${data.count||0}</div></div>
+      <div class="metric"><div class="m-label">Daily avg</div><div class="m-val">$${(data.dailyAvg||0).toFixed(2)}</div></div>
+      <div class="metric"><div class="m-label">Top category</div><div class="m-val" style="font-size:13px">${data.topCategory||'—'}</div></div>
+    </div>
+    <h3 style="margin-bottom:12px">Daily spending</h3>
+    <div class="chart-wrap"><canvas id="report-chart"></canvas></div>
+    <h3 style="margin:20px 0 12px">By category</h3>
+    <div id="cat-breakdown"></div>
+    <div class="divider"></div>
+    <button class="btn btn-accent" onclick="exportMonth('${month}')">Export as Excel</button>
+  `;
+
+  // Build chart
+  if (reportChart) { reportChart.destroy(); reportChart = null; }
+  if (dayKeys.length) {
+    setTimeout(() => {
+      const ctx = document.getElementById('report-chart');
+      if (!ctx) return;
+      reportChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: dayKeys.map(d => new Date(d + 'T00:00:00').toLocaleDateString('en-SG', {day:'numeric',month:'short'})),
+          datasets: [{ data: dayKeys.map(d => parseFloat((data.byDay[d]||0).toFixed(2))), backgroundColor: '#e8c97a44', borderColor: '#e8c97a', borderWidth: 1, borderRadius: 4 }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: '#6b6865', font: { size: 10, family: 'DM Mono' } } },
+            y: { grid: { color: '#333' }, ticks: { color: '#6b6865', font: { size: 10, family: 'DM Mono' }, callback: v => '$'+v } }
+          }
+        }
+      });
+    }, 50);
+  }
+
+  // Category breakdown
+  const maxAmt = topCats.length ? topCats[0][1] : 1;
+  document.getElementById('cat-breakdown').innerHTML = topCats.map(([cat, amt]) => `
+    <div class="cat-item">
+      <div class="cat-name">${CAT_EMOJI[cat]||'📦'} ${cat}</div>
+      <div class="cat-bar-wrap"><div class="cat-bar" style="width:${(amt/maxAmt*100).toFixed(1)}%"></div></div>
+      <div class="cat-amt">$${amt.toFixed(2)}</div>
+    </div>
+  `).join('') || '<div class="empty">No data</div>';
+}
+
+// ── RECEIPT SCANNER ───────────────────────────────────────
+async function handleFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const preview = document.getElementById('preview');
+  const reader = new FileReader();
+  reader.onload = async e => {
+    preview.src = e.target.result;
+    preview.style.display = 'block';
+    const b64  = e.target.result.split(',')[1];
+    const mime = file.type || 'image/jpeg';
+    await scanReceipt(b64, mime);
+  };
+  reader.readAsDataURL(file);
+}
+
+async function scanReceipt(b64, mime) {
+  const status  = document.getElementById('scan-status');
+  const results = document.getElementById('scan-results');
+  const key     = API_KEY || localStorage.getItem('api_key');
+
+  if (!key) {
+    status.innerHTML = `<div style="color:var(--danger);font-size:13px;margin-bottom:12px">Set your Anthropic API key in Settings ⚙ to use receipt scanning.</div>`;
+    return;
+  }
+
+  status.innerHTML = `<div style="font-size:12px;color:var(--txt3);margin-bottom:12px;display:flex;align-items:center;gap:8px"><span class="spinner"></span> Reading receipt…</div>`;
+  results.innerHTML = '';
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1024,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mime, data: b64 } },
+            { type: 'text', text: `Analyze this receipt. Respond ONLY with valid JSON, no markdown:
+{"merchant":"","date":"","items":[{"name":"","amount":0}],"total":0}
+Rules: extract every line item with price; if no date found use today ${new Date().toISOString().slice(0,10)}; amounts as numbers only; convert any currency symbol to number.` }
+          ]
+        }]
+      })
+    });
+
+    const data = await res.json();
+    const text = (data.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
+    const parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
+    showScanResults(parsed);
+    status.innerHTML = `<div style="font-size:12px;color:var(--success);margin-bottom:12px">✓ ${parsed.items?.length || 0} items found from ${parsed.merchant || 'receipt'}</div>`;
+  } catch (err) {
+    status.innerHTML = `<div style="font-size:12px;color:var(--danger);margin-bottom:12px">Could not read receipt — try a clearer photo</div>`;
+  }
+}
+
+function showScanResults(data) {
+  const items = data.items || [];
+  const today = nowLocal();
+  const date  = data.date ? (data.date + 'T12:00') : today;
+
+  document.getElementById('scan-results').innerHTML = `
+    <div class="scan-result-wrap">
+      ${items.map((it, i) => `
+        <div class="scan-row">
+          <span class="scan-name">${it.name}</span>
+          <span class="scan-price">$${parseFloat(it.amount).toFixed(2)}</span>
+          <button class="btn btn-sm" onclick="addExpense({title:'${escJs(it.name)}',amount:${it.amount},cat:'Food & drinks',date:'${date}',notes:'Scanned receipt'})">Add</button>
+        </div>`).join('')}
+      ${data.total ? `<div class="scan-row" style="padding-top:12px;font-weight:500">
+        <span class="scan-name" style="color:var(--txt)">Total</span>
+        <span class="scan-price">$${parseFloat(data.total).toFixed(2)}</span>
+        <button class="btn btn-sm" onclick="addExpense({title:'${escJs(data.merchant||'Receipt')}',amount:${data.total},cat:'Food & drinks',date:'${date}',notes:'Receipt total'})">Add</button>
+      </div>` : ''}
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-accent" onclick="addAllItems(${JSON.stringify(JSON.stringify(items))}, '${escJs(data.merchant||'Receipt')}', '${date}')">Add all items</button>
+    </div>
+  `;
+}
+
+function addAllItems(jsonStr, merchant, date) {
+  const items = JSON.parse(jsonStr);
+  items.forEach((it, i) => {
+    setTimeout(() => addExpense({ title: it.name, amount: it.amount, cat: 'Food & drinks', date, notes: `From ${merchant}` }), i * 100);
+  });
+}
+
+// ── EXCEL EXPORT ──────────────────────────────────────────
+function exportMonth(month) {
+  month = month || document.getElementById('report-month')?.value || getCurrentMonth();
+  const expenses = localCache.filter(e => String(e.date).startsWith(month));
+  if (!expenses.length) { toast('No data for this month'); return; }
+
+  const wb = XLSX.utils.book_new();
+  const rows = [['#', 'Date', 'Title', 'Category', 'Amount (SGD)', 'Notes']];
+  expenses.forEach((e, i) => rows.push([i+1, fmtDate(e.date), e.title, e.category, e.amount, e.notes||'']));
+  rows.push([], ['Summary']);
+  const byCat = {};
+  expenses.forEach(e => byCat[e.category] = (byCat[e.category]||0) + e.amount);
+  Object.entries(byCat).sort((a,b)=>b[1]-a[1]).forEach(([c,v]) => rows.push(['', c, '', '', +v.toFixed(2), '']));
+  rows.push(['', 'TOTAL', '', '', +expenses.reduce((s,e)=>s+e.amount,0).toFixed(2), '']);
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:4},{wch:22},{wch:28},{wch:18},{wch:14},{wch:24}];
+  XLSX.utils.book_append_sheet(wb, ws, 'Expenses');
+  XLSX.writeFile(wb, `Expenses_${month}.xlsx`);
+  toast('Excel downloaded ✓');
+}
+
+// ── SETTINGS ─────────────────────────────────────────────
+function saveApiUrl() {
+  API_URL = document.getElementById('api-url-input').value.trim();
+  localStorage.setItem('api_url', API_URL);
+  pingApi();
+}
+
+function saveApiKey() {
+  API_KEY = document.getElementById('api-key-input').value.trim();
+  localStorage.setItem('api_key', API_KEY);
+}
+
+async function testConnection() {
+  const btn = document.getElementById('btn-test');
+  btn.innerHTML = '<span class="spinner"></span> Testing…';
+  btn.disabled = true;
+  await pingApi();
+  const dot = document.getElementById('api-dot');
+  const ok  = dot.classList.contains('ok');
+  toast(ok ? 'Connection successful ✓' : 'Connection failed — check URL');
+  btn.textContent = 'Test connection';
+  btn.disabled = false;
+}
+
+function clearLocal() {
+  if (!confirm('Clear locally cached expenses? This does not affect Google Sheets.')) return;
+  localCache = [];
+  offlineQueue = [];
+  saveLocalCache();
+  toast('Local cache cleared');
+  loadRecent();
+}
+
+// ── OFFLINE QUEUE ─────────────────────────────────────────
+function queueOffline(expense) {
+  offlineQueue.push(expense);
+  localStorage.setItem('offline_queue', JSON.stringify(offlineQueue));
+}
+
+async function flushQueue() {
+  if (!offlineQueue.length || !API_URL) return;
+  const toSync = [...offlineQueue];
+  offlineQueue = [];
+  localStorage.setItem('offline_queue', '[]');
+  for (const exp of toSync) {
+    try {
+      const res = await apiPost({ action: 'addExpense', ...exp });
+      if (res?.ok) {
+        localCache = localCache.map(e => e.id && e.id.startsWith('tmp_') ? res.expense : e);
+      } else {
+        offlineQueue.push(exp);
+      }
+    } catch { offlineQueue.push(exp); }
+  }
+  localStorage.setItem('offline_queue', JSON.stringify(offlineQueue));
+  saveLocalCache();
+  toast(`Synced ${toSync.length - offlineQueue.length} expenses ✓`);
+  loadRecent();
+}
+
+// ── RENDER HELPERS ────────────────────────────────────────
+function renderList(items) {
+  return `<div class="list-wrap">${items.map(e => `
+    <div class="expense-card">
+      <div class="exp-dot">${CAT_EMOJI[e.category]||'📦'}</div>
+      <div class="exp-body">
+        <div class="exp-title">${e.title}</div>
+        <div class="exp-meta">${fmtDate(e.date)}</div>
+        <div class="exp-cat">${e.category}${e.id?.startsWith('tmp_') ? ' · pending sync' : ''}</div>
+      </div>
+      <div class="exp-right">
+        <div class="exp-amt">$${parseFloat(e.amount).toFixed(2)}</div>
+      </div>
+      <button class="exp-del" onclick="deleteExpense('${e.id}')" title="Delete">×</button>
+    </div>`).join('')}</div>`;
+}
+
+// ── UTILITIES ─────────────────────────────────────────────
+function saveLocalCache() {
+  localStorage.setItem('local_expenses', JSON.stringify(localCache));
+}
+
+function nowLocal() {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+}
+
+function getCurrentMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+
+function fmtDate(s) {
+  if (!s) return '';
+  try {
+    return new Date(s).toLocaleDateString('en-SG', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+  } catch { return s; }
+}
+
+function escJs(s) {
+  return String(s).replace(/'/g, "\\'").replace(/"/g, '\\"');
+}
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2500);
+}
+</script>
+</body>
+</html>
