@@ -834,15 +834,25 @@ async function loadReport() {
   el.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
 
   let data;
+  let usedLocalFallback = false;
   if (navigator.onLine && API_URL) {
     try {
       const res = await apiCall({ action: 'getMonthly', month });
-      if (res?.ok) data = res;
-    } catch {}
+      if (res?.ok) {
+        data = res;
+      }
+    } catch (err) {
+      // API failed, will fallback
+    }
   }
 
   if (!data) {
-    // Build from local cache
+    // Fallback: Build from local cache
+    usedLocalFallback = true;
+    // Always reload localCache from storage in case it changed
+    try {
+      localCache = JSON.parse(localStorage.getItem('local_expenses') || '[]');
+    } catch {}
     const expenses = localCache.filter(e => String(e.date).startsWith(month));
     const total = expenses.reduce((s, e) => s + e.amount, 0);
     const byCat = {}, byDay = {};
@@ -856,6 +866,9 @@ async function loadReport() {
   }
 
   renderReport(data, month);
+  if (usedLocalFallback) {
+    toast('Showing local data (offline or API error)');
+  }
 }
 
 function renderReport(data, month) {
